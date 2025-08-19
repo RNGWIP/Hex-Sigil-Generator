@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+  <meta charset="UTF-8" />
+  <title>Prototype: Sigil Generator</title>
+  <style>
+    body {
+      background: #0a0a0a;
+      color: #00ffee;
+      font-family: 'Courier New', monospace;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: row;
+      gap: 30px;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+
+    #left, #right {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    #left {
+      align-items: center;
+      max-width: 600px;
+    }
+
+    canvas {
+      background: #111;
+      border: 2px solid #00ffee;
+      margin-bottom: 20px;
+      max-width: 100%;
+      height: auto;
+      flex-shrink: 0;
+    }
+
+    input[type="text"], select, input[type="number"] {
+      background: #111;
+      border: 1px solid #00ffee;
+      color: #00ffee;
+      font-family: monospace;
+      padding: 4px;
+      margin-top: 4px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    fieldset {
+      border: 1px solid #00ffee;
+      padding: 10px;
+      margin-top: 12px;
+    }
+
+    label {
+      display: block;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+
+    button {
+      background: #111;
+      border: 1px solid #00ffee;
+      color: #00ffee;
+      padding: 8px 12px;
+      font-family: monospace;
+      margin-top: 10px;
+      cursor: pointer;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    #output, #rawText, #impliedPhrase {
+      font-size: 0.9em;
+      color: #88ffee;
+      white-space: pre-wrap;
+      text-align: left;
+      width: 100%;
+      margin-top: 10px;
+      user-select: text;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+
+    #impliedPhrase {
+      font-style: italic;
+      color: #559977;
+      user-select: text;
+      margin-top: 4px;
+    }
+
+    /* Scrollbar styling for right panel */
+    #right::-webkit-scrollbar {
+      width: 8px;
+    }
+    #right::-webkit-scrollbar-thumb {
+      background-color: #00ffee99;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="left">
+    <h1>Sigil Output</h1>
+    <canvas id="sigilCanvas" width="500" height="500"></canvas>
+    <div id="output"></div>
+    <div id="rawText"></div>
+  </div>
+
+  <div id="right">
+    <label>
+      Phrase:
+      <input type="text" id="phrase" placeholder="Enter your phrase" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    </label>
+
+    <label>
+      Or use pre-computed hash:
+      <input type="text" id="hashInput" placeholder="Optional (hex string)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    </label>
+
+    <label>
+      <input type="checkbox" id="reduceOption" />
+      Simplify phrase (remove vowels & repeated letters)
+    </label>
+    <div id="impliedPhrase"></div>
+
+    <fieldset>
+      <legend>Hash Method</legend>
+      <label><input type="radio" name="hashMethod" value="sha256" checked /> SHA-256</label>
+      <label><input type="radio" name="hashMethod" value="md5" /> MD5 (placeholder)</label>
+    </fieldset>
+
+    <!-- <label><input type="checkbox" id="useTestBytes" /> Use test bytes (show decoding differences)</label> -->
+
+    <fieldset>
+      <legend>♾️ Symmetry (Freeform Mode)</legend>
+      <label><input type="checkbox" id="symmetryAxisOption" /> Vertical Axis</label>
+      <label><input type="checkbox" id="symmetryHorizontalOption" /> Horizontal Axis</label>
+      <label><input type="checkbox" id="symmetryPointOption" /> Point Reflection</label>
+    </fieldset>
+
+    <label><input type="checkbox" id="circleOption" /> Circular Layout (Freeform Mode)</label>
+    <label><input type="checkbox" id="smoothOption" checked /> Smooth Lines (Freeform Mode)</label>
+
+    <fieldset>
+      <legend>Raw Byte Decoder</legend>
+      <select id="decoderSelect">
+        <option value="latin1">Latin-1 (ISO-8859-1)</option>
+        <option value="utf-8">UTF-8</option>
+        <option value="windows-1252">Windows-1252 (custom decode)</option>
+      </select>
+    </fieldset>
+
+    <fieldset>
+      <legend>Sigil Mode</legend>
+      <label><input type="radio" name="sigilMode" value="freeform" checked /> Freeform (existing)</label>
+      <label><input type="radio" name="sigilMode" value="geometric" /> Geometric Seal Style</label>
+    </fieldset>
+
+    <fieldset id="geomOptions" style="display:none;">
+      <label>
+        <input type="checkbox" id="autoGenerateParams" />
+        Auto-generate seal parameters from phrase hash
+      </label>
+      <label>
+        Polygon Sides (3-8):
+        <input type="number" id="polygonSides" min="3" max="8" value="5" />
+      </label>
+      <label>
+        Number of Rings (1-3):
+        <input type="number" id="numRings" min="1" max="3" value="2" />
+      </label>
+      <label>
+        Points Per Ring (3-12):
+        <input type="number" id="pointsPerRing" min="3" max="12" value="6" />
+      </label>
+      <label>
+        Rotational Symmetry (1-6):
+        <input type="number" id="rotSymmetry" min="1" max="6" value="3" />
+      </label>
+      <label>
+        Line Thickness (1-6):
+        <input type="number" id="lineThickness" min="1" max="6" value="3" />
+      </label>
+      <label>
+        Motif:
+        <select id="motifSelect">
+          <option value="dot">Dot</option>
+          <option value="cross">Cross</option>
+          <option value="triangle">Triangle</option>
+          <option value="square">Square</option>
+          <option value="crescent">Crescent</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <button onclick="generateSigil()">Generate Sigil</button>
+    <button id="exportSvg" onclick="exportSvg()" disabled>Export SVG</button>
+  </div>
+
+  <script>
+    // --- Custom Windows-1252 decoder for bytes 0x80–0x9F ---
+    function decodeWindows1252(bytes) {
+      // Map bytes 0x80 to 0x9F to corresponding Unicode codepoints.
+      const map = {
+        0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†',
+        0x87: '‡', 0x88: 'ˆ', 0x89: '‰', 0x8A: 'Š', 0x8B: '‹', 0x8C: 'Œ',
+        0x8E: 'Ž', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•',
+        0x96: '–', 0x97: '—', 0x98: '˜', 0x99: '™', 0x9A: 'š', 0x9B: '›',
+        0x9C: 'œ', 0x9E: 'ž', 0x9F: 'Ÿ'
+      };
+
+      return bytes.map(b => {
+        if (b >= 0x00 && b <= 0x7F) return String.fromCharCode(b);
+        if (b >= 0xA0 && b <= 0xFF) return String.fromCharCode(b);
+        return map[b] || ''; // Map control bytes, or empty string if undefined
+      }).join('');
+    }
+
+    // --- Simplify phrase (remove vowels & repeated letters) ---
+    function simplifyPhrase(str) {
+  const vowels = /[aeiou]/gi;
+  str = str.toLowerCase().replace(vowels, "");
+  
+  // Keep only first occurrence of each letter (remove all duplicates)
+  const seen = new Set();
+  const result = [];
+  
+  for (const char of str) {
+    if (!seen.has(char)) {
+      seen.add(char);
+      result.push(char);
+    }
+  }
+  
+  return result.join('');
+}
+
+
+    // --- Convert hex string to decimal array ---
+    function hexToDecimalArray(hex) {
+      const bytes = [];
+      for (let i = 0; i < hex.length; i += 2) {
+        const byte = parseInt(hex.slice(i, i + 2), 16);
+        if (!isNaN(byte)) bytes.push(byte);
+      }
+      return bytes;
+    }
+
+    // --- Draw sigil on canvas ---
+    const canvas = document.getElementById("sigilCanvas");
+    const ctx = canvas.getContext("2d");
+    const exportBtn = document.getElementById("exportSvg");
+    let lastPoints = [];
+
+    function drawSigil(points, options = {}) {
+      const { smooth = true, lineWidth = 3 } = options;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = "#00ffee";
+      ctx.fillStyle = "#00ffee";
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      if (!points.length) return;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      if (smooth && points.length > 2) {
+        for (let i = 1; i < points.length - 2; i++) {
+          const xc = (points[i].x + points[i + 1].x) / 2;
+          const yc = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.quadraticCurveTo(
+          points[points.length - 2].x,
+          points[points.length - 2].y,
+          points[points.length - 1].x,
+          points[points.length - 1].y
+        );
+      } else {
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+      }
+      ctx.stroke();
+      lastPoints = points;
+      exportBtn.disabled = false;
+    }
+
+    // --- Geometric Seal Drawing Functions ---
+
+    // Draw polygon points in a ring
+    function polygonPoints(centerX, centerY, radius, sides, rotation=0) {
+      const pts = [];
+      for(let i=0; i<sides; i++) {
+        const angle = (2 * Math.PI * i / sides) + rotation;
+        pts.push({
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle)
+        });
+      }
+      return pts;
+    }
+
+    // Draw a dot motif
+    function drawMotifDot(ctx, x, y, size) {
+      ctx.beginPath();
+      ctx.arc(x, y, size/2, 0, 2*Math.PI);
+      ctx.fill();
+    }
+
+    // Draw a cross motif
+    function drawMotifCross(ctx, x, y, size) {
+      const half = size/2;
+      ctx.beginPath();
+      ctx.moveTo(x - half, y);
+      ctx.lineTo(x + half, y);
+      ctx.moveTo(x, y - half);
+      ctx.lineTo(x, y + half);
+      ctx.stroke();
+    }
+
+    // Draw a triangle motif
+    function drawMotifTriangle(ctx, x, y, size) {
+      const height = size * Math.sqrt(3)/2;
+      ctx.beginPath();
+      ctx.moveTo(x, y - height/2);
+      ctx.lineTo(x - size/2, y + height/2);
+      ctx.lineTo(x + size/2, y + height/2);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Draw a square motif
+    function drawMotifSquare(ctx, x, y, size) {
+      ctx.beginPath();
+      ctx.rect(x - size/2, y - size/2, size, size);
+      ctx.fill();
+    }
+
+    // Draw a crescent motif (simple)
+    function drawMotifCrescent(ctx, x, y, size) {
+      const r = size/2;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0.25 * Math.PI, 1.75 * Math.PI, false);
+      ctx.arc(x + r/2, y, r, 1.75 * Math.PI, 0.25 * Math.PI, true);
+      ctx.fill();
+    }
+
+    // --- Generate Sigil Points for Geometric Mode ---
+    function generateGeometricPoints(params, hashArray) {
+      const {
+        polygonSides, numRings, pointsPerRing,
+        rotSymmetry, lineThickness, motif,
+        autoGenerate
+      } = params;
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const baseRadius = 70;
+      const ringGap = 50;
+      const points = [];
+
+      ctx.lineWidth = lineThickness;
+
+      // If autoGenerate is ON: fully generate params from hash bytes:
+      let sides = polygonSides;
+      let rings = numRings;
+      let ppr = pointsPerRing;
+      let rotationSym = rotSymmetry;
+      let thickness = lineThickness;
+      let chosenMotif = motif;
+
+      if(autoGenerate && hashArray && hashArray.length >= 5) {
+        // Map some bytes to param ranges:
+        sides = mapByteToRange(hashArray[0], 3, 8);
+        rings = mapByteToRange(hashArray[1], 1, 3);
+        ppr = mapByteToRange(hashArray[2], 3, 12);
+        rotationSym = mapByteToRange(hashArray[3], 1, 6);
+        thickness = mapByteToRange(hashArray[4], 1, 6);
+        // Motif index mapped from byte 5:
+        const motifs = ['dot','cross','triangle','square','crescent','none'];
+        chosenMotif = motifs[hashArray[5] % motifs.length];
+      } else if(hashArray && hashArray.length >= 5) {
+        // Combine user input params with hash bytes to modulate them:
+        // We’ll slightly vary params by + or - up to 2 based on hash bytes, but clamp to valid ranges
+
+        function modulateParam(userVal, byteVal, min, max) {
+          const mod = (byteVal % 5) - 2; // -2..+2
+          let v = userVal + mod;
+          if (v < min) v = min;
+          if (v > max) v = max;
+          return v;
+        }
+
+        sides = modulateParam(polygonSides, hashArray[0], 3, 8);
+        rings = modulateParam(numRings, hashArray[1], 1, 3);
+        ppr = modulateParam(pointsPerRing, hashArray[2], 3, 12);
+        rotationSym = modulateParam(rotSymmetry, hashArray[3], 1, 6);
+        thickness = modulateParam(lineThickness, hashArray[4], 1, 6);
+        // Motif changes only if mod byte even else keep user motif:
+        if(hashArray[5] % 2 === 0){
+          const motifs = ['dot','cross','triangle','square','crescent','none'];
+          chosenMotif = motifs[hashArray[5] % motifs.length];
+        }
+      }
+
+      for(let ring = 1; ring <= rings; ring++) {
+        const radius = baseRadius + (ring-1)*ringGap;
+
+        // Base polygon points
+        const ringPoints = polygonPoints(centerX, centerY, radius, ppr);
+
+        // Connect points with rotational symmetry
+        for(let i=0; i<ppr; i++) {
+          for(let sym=0; sym<rotationSym; sym++) {
+            const idx = (i + sym * Math.floor(ppr / rotationSym)) % ppr;
+            const p1 = ringPoints[i];
+            const p2 = ringPoints[idx];
+            points.push(p1, p2);
+          }
+        }
+
+        // Add motifs on polygon points
+        for(let pt of ringPoints) {
+          switch(chosenMotif) {
+            case "dot": drawMotifDot(ctx, pt.x, pt.y, 10); break;
+            case "cross": drawMotifCross(ctx, pt.x, pt.y, 14); break;
+            case "triangle": drawMotifTriangle(ctx, pt.x, pt.y, 14); break;
+            case "square": drawMotifSquare(ctx, pt.x, pt.y, 12); break;
+            case "crescent": drawMotifCrescent(ctx, pt.x, pt.y, 14); break;
+            case "none": break;
+          }
+        }
+      }
+      ctx.lineWidth = thickness;
+      return points;
+    }
+
+    // --- Map byte 0-255 to range min-max integer inclusive ---
+    function mapByteToRange(byte, min, max) {
+      return Math.floor((byte / 255) * (max - min)) + min;
+    }
+
+    // --- Generate Freeform Sigil points based on hash bytes ---
+    function generateFreeformPoints(hashArray, options) {
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const points = [];
+
+  const circleLayout = options.circleLayout;
+  const smooth = options.smooth;
+  const verticalSym = options.verticalSymmetry;
+  const horizontalSym = options.horizontalSymmetry;
+  const pointSym = options.pointSymmetry;
+
+  const maxRadius = 200;
+  const minRadius = 50;
+  const numPoints = Math.min(hashArray.length, 40);
+
+  // Map bytes to angles and radii to create base points
+  for(let i = 0; i < numPoints; i++) {
+    const byte = hashArray[i];
+    let angle = (i / numPoints) * 2 * Math.PI;
+    if (!circleLayout) {
+      angle += (byte / 255) * Math.PI/2; // add some randomness
+    }
+    let radius = mapByteToRange(byte, minRadius, maxRadius);
+
+    // Convert polar to cartesian
+    let x = centerX + radius * Math.cos(angle);
+    let y = centerY + radius * Math.sin(angle);
+
+    points.push({x, y});
+  }
+
+  // Now apply symmetry **after** all points are generated, by mirroring the entire set
+
+  let allPoints = [...points];
+
+  // Helper mirror functions
+  function mirrorVertical(points) {
+    return points.map(pt => ({ x: 2*centerX - pt.x, y: pt.y }));
+  }
+  function mirrorHorizontal(points) {
+    return points.map(pt => ({ x: pt.x, y: 2*centerY - pt.y }));
+  }
+  function mirrorPoint(points) {
+    return points.map(pt => ({ x: 2*centerX - pt.x, y: 2*centerY - pt.y }));
+  }
+
+  if(verticalSym) {
+    allPoints = allPoints.concat(mirrorVertical(points));
+  }
+  if(horizontalSym) {
+    allPoints = allPoints.concat(mirrorHorizontal(points));
+  }
+  if(pointSym) {
+    allPoints = allPoints.concat(mirrorPoint(points));
+  }
+
+  return allPoints;
+}
+
+
+    // --- Export canvas as SVG path ---
+    function exportSvg() {
+      if (!lastPoints || lastPoints.length === 0) return alert("No sigil to export!");
+      const svgNS = "http://www.w3.org/2000/svg";
+
+      let pathData = "";
+      if (lastPoints.length > 0) {
+        pathData = `M${lastPoints[0].x.toFixed(2)},${lastPoints[0].y.toFixed(2)} `;
+        for(let i = 1; i < lastPoints.length; i++) {
+          pathData += `L${lastPoints[i].x.toFixed(2)},${lastPoints[i].y.toFixed(2)} `;
+        }
+      }
+
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("width", canvas.width);
+      svg.setAttribute("height", canvas.height);
+      svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
+      svg.style.background = "#111";
+
+      const path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", pathData.trim());
+      path.setAttribute("stroke", "#00ffee");
+      path.setAttribute("stroke-width", 3);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("stroke-linecap", "round");
+
+      svg.appendChild(path);
+
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], {type: "image/svg+xml"});
+      const url = URL.createObjectURL(svgBlob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "sigil.svg";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Main Sigil Generation Function ---
+    async function generateSigil() {
+      const phraseInput = document.getElementById("phrase");
+      const hashInput = document.getElementById("hashInput");
+      const reduceOption = document.getElementById("reduceOption");
+      const impliedPhraseDiv = document.getElementById("impliedPhrase");
+      const outputDiv = document.getElementById("output");
+      const rawTextDiv = document.getElementById("rawText");
+      const useTestBytes = document.getElementById("useTestBytes");
+      const decoderSelect = document.getElementById("decoderSelect");
+      const circleOption = document.getElementById("circleOption");
+      const smoothOption = document.getElementById("smoothOption");
+      const symmetryAxisOption = document.getElementById("symmetryAxisOption");
+      const symmetryHorizontalOption = document.getElementById("symmetryHorizontalOption");
+      const symmetryPointOption = document.getElementById("symmetryPointOption");
+      const sigilModeRadios = document.getElementsByName("sigilMode");
+      const geomOptions = document.getElementById("geomOptions");
+      const autoGenerateParams = document.getElementById("autoGenerateParams");
+      const polygonSidesInput = document.getElementById("polygonSides");
+      const numRingsInput = document.getElementById("numRings");
+      const pointsPerRingInput = document.getElementById("pointsPerRing");
+      const rotSymmetryInput = document.getElementById("rotSymmetry");
+      const lineThicknessInput = document.getElementById("lineThickness");
+      const motifSelect = document.getElementById("motifSelect");
+
+      let phrase = phraseInput.value.trim();
+
+      if(reduceOption.checked) {
+        phrase = simplifyPhrase(phrase);
+        impliedPhraseDiv.textContent = "Simplified phrase: " + phrase;
+      } else {
+        impliedPhraseDiv.textContent = "";
+      }
+
+      if (!phrase && !hashInput.value.trim()) {
+        outputDiv.textContent = "Enter a phrase or a hash to generate a sigil.";
+        rawTextDiv.textContent = "";
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        exportBtn.disabled = true;
+        return;
+      }
+
+      let hashHex = "";
+      let rawBytes = [];
+
+      if(hashInput.value.trim()) {
+        // Use user-provided hash input
+        const candidate = hashInput.value.trim().toLowerCase();
+        // Validate hex string
+        if(!/^[0-9a-f]+$/.test(candidate) || candidate.length % 2 !== 0) {
+          outputDiv.textContent = "Invalid hash hex string.";
+          rawTextDiv.textContent = "";
+          exportBtn.disabled = true;
+          return;
+        }
+        hashHex = candidate;
+      } else {
+        // Hash phrase
+        const hashMethod = [...document.getElementsByName("hashMethod")].find(r => r.checked).value;
+        if(hashMethod === "sha256") {
+          hashHex = await sha256Hex(phrase);
+        } else {
+          // md5 fallback - using blueimp-md5
+          hashHex = md5(phrase);
+        }
+      }
+
+      rawBytes = hexToDecimalArray(hashHex);
+
+      // Display decoded text using selected decoder
+      let decodedText = "";
+      if(useTestBytes.checked) {
+        decodedText += "[Test bytes decoded with all methods for debug]\n\n";
+        decodedText += "Latin1: " + latin1Decode(rawBytes) + "\n";
+        decodedText += "UTF-8: " + utf8Decode(rawBytes) + "\n";
+        decodedText += "Windows-1252: " + decodeWindows1252(rawBytes) + "\n";
+      } else {
+        const decoder = decoderSelect.value;
+        if(decoder === "latin1") {
+          decodedText = latin1Decode(rawBytes);
+        } else if(decoder === "utf-8") {
+          decodedText = utf8Decode(rawBytes);
+        } else if(decoder === "windows-1252") {
+          decodedText = decodeWindows1252(rawBytes);
+        }
+      }
+
+      outputDiv.textContent = "Hex: " + hashHex;
+      rawTextDiv.textContent = "Decoded: " + decodedText;
+
+      // Determine sigil mode
+      const sigilMode = [...sigilModeRadios].find(r => r.checked).value;
+
+      if(sigilMode === "freeform") {
+        geomOptions.style.display = "none";
+        // Generate freeform sigil
+        const points = generateFreeformPoints(rawBytes, {
+          circleLayout: circleOption.checked,
+          smooth: smoothOption.checked,
+          verticalSymmetry: symmetryAxisOption.checked,
+          horizontalSymmetry: symmetryHorizontalOption.checked,
+          pointSymmetry: symmetryPointOption.checked
+        });
+        drawSigil(points, { smooth: smoothOption.checked, lineWidth: 3 });
+      } else {
+        geomOptions.style.display = "block";
+
+        const params = {
+          polygonSides: parseInt(polygonSidesInput.value, 10),
+          numRings: parseInt(numRingsInput.value, 10),
+          pointsPerRing: parseInt(pointsPerRingInput.value, 10),
+          rotSymmetry: parseInt(rotSymmetryInput.value, 10),
+          lineThickness: parseInt(lineThicknessInput.value, 10),
+          motif: motifSelect.value,
+          autoGenerate: autoGenerateParams.checked
+        };
+
+        const points = generateGeometricPoints(params, rawBytes);
+        drawSigil(points, { smooth: false, lineWidth: params.lineThickness });
+      }
+    }
+
+    // --- Helper: SHA-256 as hex ---
+    async function sha256Hex(msg) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(msg);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // --- Latin1 decode (simple) ---
+    function latin1Decode(bytes) {
+      return bytes.map(b => String.fromCharCode(b)).join('');
+    }
+
+    // --- UTF-8 decode ---
+    function utf8Decode(bytes) {
+      try {
+        const decoder = new TextDecoder("utf-8", {fatal:false});
+        return decoder.decode(new Uint8Array(bytes));
+      } catch {
+        return "[Invalid UTF-8]";
+      }
+    }
+
+    // --- UI interaction for showing geometric options ---
+    const sigilModeRadios = document.getElementsByName("sigilMode");
+    const geomOptions = document.getElementById("geomOptions");
+    for(let radio of sigilModeRadios) {
+      radio.addEventListener("change", () => {
+        if(radio.checked && radio.value === "geometric") {
+          geomOptions.style.display = "block";
+        } else if(radio.checked && radio.value === "freeform") {
+          geomOptions.style.display = "none";
+        }
+      });
+    }
+
+    // --- On page load ---
+    window.onload = () => {
+      generateSigil();
+    };
+  </script>
+</body>
+</html>

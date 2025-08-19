@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Prototype: PCB Trace Sigil Generator</title>
+  <style>
+    body {
+      background: #0a0a0a;
+      color: #00ffee;
+      font-family: monospace;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      margin-top: 0;
+    }
+
+    #container {
+      display: flex;
+      flex-direction: row;
+      gap: 30px;
+      height: 90vh;
+    }
+
+    #left, #right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      min-width: 0;
+    }
+
+    #left {
+      align-items: center;
+    }
+
+    canvas {
+      background: #111;
+      border: 2px solid #00ffee;
+      margin-top: 20px;
+      max-width: 100%;
+      height: auto;
+    }
+
+    label, button, select, input {
+      margin-top: 8px;
+      background: #111;
+      border: 1px solid #00ffee;
+      color: #00ffee;
+      padding: 6px;
+      font-family: monospace;
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    fieldset {
+      border: 1px solid #00ffee;
+      padding: 10px;
+      margin-top: 12px;
+    }
+
+    pre {
+  white-space: pre-wrap;
+  background: #111;
+  border: 1px solid #00ffee;
+  padding: 10px;
+  margin-top: 8px;
+  overflow: visible;
+  max-width: 100%;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+  </style>
+</head>
+<body>
+  <h1>PCB Trace Sigil Generator</h1>
+  <div id="container">
+    <div id="left">
+      <canvas id="pcbCanvas" width="600" height="600"></canvas>
+    </div>
+    <div id="right">
+      <label>Phrase:
+        <input type="text" id="phraseInput" placeholder="Enter phrase" value="all is well">
+      </label>
+
+      <label><input type="checkbox" id="simplifyPhrase"> Simplify phrase (remove vowels, repeats)</label>
+      <label><input type="checkbox" id="useMd5"> Use MD5 instead of SHA-256</label>
+
+      <fieldset>
+        <legend>Symmetry Options</legend>
+        <label><input type="checkbox" id="symmetryVertical"> Vertical Axis</label>
+        <label><input type="checkbox" id="symmetryHorizontal"> Horizontal Axis</label>
+        <label><input type="checkbox" id="symmetryPoint"> Point Reflection</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Parallel Line Options</legend>
+        <label>
+          Number of parallel lines (1-5):
+          <input type="number" id="parallelCount" min="1" max="5" value="1" />
+        </label>
+        <label>
+          Parallel line spacing (grid units):
+          <label>
+            Parallel line spacing (grid units):
+            <input
+              type="number"
+              id="parallelSpacingInput"
+              min="0.1"
+              max="5"
+              step="0.05"
+              value="0.3"
+            />
+          </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Decoding Options</legend>
+        <label for="decoderSelect">Decoder:</label>
+        <select id="decoderSelect">
+          <option value="latin1">Latin-1</option>
+          <option value="utf-8">UTF-8</option>
+          <option value="windows-1252">Windows-1252</option>
+        </select>
+      </fieldset>
+
+      <button id="generateBtn">Generate PCB Sigil</button>
+
+      <pre id="simplifiedOutput"></pre>
+      <pre id="hexOutput"></pre>
+      <pre id="decimalOutput"></pre>
+      <pre id="decodedOutput"></pre>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+  <script>
+    const canvas = document.getElementById('pcbCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const phraseInput = document.getElementById('phraseInput');
+    const simplifyPhraseCheckbox = document.getElementById('simplifyPhrase');
+    const useMd5 = document.getElementById('useMd5');
+    const symmetryVertical = document.getElementById('symmetryVertical');
+    const symmetryHorizontal = document.getElementById('symmetryHorizontal');
+    const symmetryPoint = document.getElementById('symmetryPoint');
+    const decoderSelect = document.getElementById('decoderSelect');
+    const simplifiedOutput = document.getElementById('simplifiedOutput');
+    const hexOutput = document.getElementById('hexOutput');
+    const decimalOutput = document.getElementById('decimalOutput');
+    const decodedOutput = document.getElementById('decodedOutput');
+    const parallelCountInput = document.getElementById('parallelCount');
+    const parallelSpacing = parseFloat(document.getElementById('parallelSpacingInput').value) || 0.3;
+
+
+    document.getElementById('generateBtn').addEventListener('click', async () => {
+      let phrase = phraseInput.value.trim();
+      if (!phrase) {
+        alert('Enter a phrase!');
+        return;
+      }
+
+      let simplified = phrase;
+      if (simplifyPhraseCheckbox.checked) {
+        simplified = simplifyPhrase(phrase);
+      }
+      simplifiedOutput.textContent = `Simplified Phrase:\n${simplified}`;
+
+      let hashHex = '';
+      if (useMd5.checked) {
+        hashHex = md5(simplified);
+      } else {
+        hashHex = await sha256Hex(simplified);
+      }
+
+      const bytes = hexToBytes(hashHex);
+      hexOutput.textContent = `Hex:\n${hashHex}`;
+      decimalOutput.textContent = `Bytes (decimal):\n${bytes.join(', ')}`;
+      decodedOutput.textContent = `Decoded:\n${decodeBytes(bytes, decoderSelect.value)}`;
+
+      generatePCB(ctx, bytes, {
+        vertical: symmetryVertical.checked,
+        horizontal: symmetryHorizontal.checked,
+        point: symmetryPoint.checked
+      }, parseInt(parallelCountInput.value), parseInt(parallelSpacingInput.value));
+    });
+
+    // Phrase simplification function (classic chaos magic style)
+    function simplifyPhrase(phrase) {
+      const noVowels = phrase.toLowerCase().replace(/[aeiou\s]/g, '');
+      let result = '';
+      for (let char of noVowels) {
+        if (!result.includes(char)) {
+          result += char;
+        }
+      }
+      return result.toUpperCase();
+    }
+
+    // Hash helpers
+    async function sha256Hex(msg) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(msg);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function hexToBytes(hex) {
+      const bytes = [];
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes.push(parseInt(hex.slice(i, i + 2), 16));
+      }
+      return bytes;
+    }
+
+    function decodeBytes(bytes, decoder) {
+      try {
+        if (decoder === 'utf-8') {
+          return new TextDecoder("utf-8").decode(new Uint8Array(bytes));
+        } else if (decoder === 'windows-1252') {
+          return bytes.map(b => {
+            if (b >= 0x00 && b <= 0x7F) return String.fromCharCode(b);
+            if (b >= 0xA0) return String.fromCharCode(b);
+            const map = {
+              0x80:'€',0x82:'‚',0x83:'ƒ',0x84:'„',0x85:'…',0x86:'†',0x87:'‡',0x88:'ˆ',
+              0x89:'‰',0x8A:'Š',0x8B:'‹',0x8C:'Œ',0x8E:'Ž',0x91:'‘',0x92:'’',0x93:'“',
+              0x94:'”',0x95:'•',0x96:'–',0x97:'—',0x98:'˜',0x99:'™',0x9A:'š',0x9B:'›',
+              0x9C:'œ',0x9E:'ž',0x9F:'Ÿ'
+            };
+            return map[b] || '';
+          }).join('');
+        } else {
+          return bytes.map(b => String.fromCharCode(b)).join('');
+        }
+      } catch {
+        return "[Invalid Decoding]";
+      }
+    }
+
+    // --- Drawing Function ---
+    function generatePCB(ctx, bytes, symmetry, parallelCount = 1, parallelSpacing = 1) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#00ffee';
+      ctx.fillStyle = '#00ffee';
+
+      const gridSize = 14;
+      const cellW = canvas.width / gridSize;
+      const cellH = canvas.height / gridSize;
+
+      let i = 0;
+      while (i < bytes.length - 4) {
+        let gx = bytes[i++] % gridSize;
+        let gy = bytes[i++] % gridSize;
+        const steps = 5 + (bytes[i++] % 10);
+
+        const path = [];
+        path.push({ x: gx, y: gy });
+
+        for (let s = 0; s < steps && i < bytes.length - 1; s++) {
+          const dir = bytes[i++] % 8;
+          let dx = 0;
+          let dy = 0;
+
+          if (dir < 4) {
+            if (dir === 0) dx = 1;
+            if (dir === 1) dx = -1;
+            if (dir === 2) dy = 1;
+            if (dir === 3) dy = -1;
+          } else {
+            dx = (dir % 2 === 0) ? 1 : -1;
+            dy = (dir % 4 < 2) ? 1 : -1;
+          }
+
+          gx = Math.max(0, Math.min(gridSize - 1, gx + dx));
+          gy = Math.max(0, Math.min(gridSize - 1, gy + dy));
+
+          path.push({ x: gx, y: gy });
+        }
+
+        drawTrace(ctx, path, cellW, cellH, symmetry, parallelCount, parallelSpacing);
+      }
+    }
+
+    // Compute offset segments for parallel lines
+    function computeOffsetSegments(path, offset) {
+      const segments = [];
+
+      for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i + 1];
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy) || 1;
+
+        // Perpendicular normalized vector
+        const perpX = -dy / len;
+        const perpY = dx / len;
+
+        segments.push([
+          { x: p1.x + perpX * offset, y: p1.y + perpY * offset },
+          { x: p2.x + perpX * offset, y: p2.y + perpY * offset }
+        ]);
+      }
+
+      return segments;
+    }
+
+function drawTrace(ctx, path, cellW, cellH, symmetry, parallelCount, parallelSpacing) {
+  const transforms = [{ x: 0, y: 0 }];
+  if (symmetry.vertical) transforms.push({ x: 1, y: 0 });
+  if (symmetry.horizontal) transforms.push({ x: 0, y: 1 });
+  if (symmetry.point) transforms.push({ x: 1, y: 1 });
+
+  for (let t of transforms) {
+    // For each parallel line to draw
+    for (let lineIndex = 0; lineIndex < parallelCount; lineIndex++) {
+      const offsetIndex = lineIndex - (parallelCount - 1) / 2;
+      const offset = offsetIndex * parallelSpacing;
+
+      // Compute offset version of the path, segment by segment
+      const offsetPath = [];
+
+      for (let i = 0; i < path.length; i++) {
+        // For endpoints, estimate local direction based on neighbor
+        let prev = path[Math.max(i - 1, 0)];
+        let next = path[Math.min(i + 1, path.length - 1)];
+        let dx = next.x - prev.x;
+        let dy = next.y - prev.y;
+        const len = Math.hypot(dx, dy) || 1;
+
+        // Perpendicular unit vector
+        const perpX = -dy / len;
+        const perpY = dx / len;
+
+        // Offset this point
+        offsetPath.push({
+          x: path[i].x + perpX * offset,
+          y: path[i].y + perpY * offset
+        });
+      }
+
+      // Apply symmetry
+      const mirroredPath = offsetPath.map(pt => ({
+        x: t.x ? (13 - pt.x) : pt.x,
+        y: t.y ? (13 - pt.y) : pt.y
+      }));
+
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(mirroredPath[0].x * cellW + cellW / 2, mirroredPath[0].y * cellH + cellH / 2);
+      for (let p of mirroredPath.slice(1)) {
+        ctx.lineTo(p.x * cellW + cellW / 2, p.y * cellH + cellH / 2);
+      }
+      ctx.stroke();
+
+      // Dots at ends
+      for (const endPt of [mirroredPath[0], mirroredPath[mirroredPath.length - 1]]) {
+        ctx.beginPath();
+        ctx.arc(endPt.x * cellW + cellW / 2, endPt.y * cellH + cellH / 2, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+
+  </script>
+</body>
+</html>
